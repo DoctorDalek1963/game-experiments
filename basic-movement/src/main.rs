@@ -1,4 +1,20 @@
+//! This is a very simple project to test basic movement in a 3D environment with Bevy.
+
 use bevy::prelude::*;
+
+/// A simple tag to identify the player entity.
+#[derive(Component)]
+struct Player;
+
+/// A tag to identify star entities.
+#[derive(Component)]
+struct Star {
+    alive_timer: Timer,
+}
+
+/// The timer that we use to know when to spawn a new star.
+#[derive(Resource)]
+struct StarSpawnTimer(Timer);
 
 fn main() {
     App::new()
@@ -9,14 +25,16 @@ fn main() {
             }),
             ..default()
         }))
+        .insert_resource(StarSpawnTimer(Timer::from_seconds(
+            2.,
+            TimerMode::Repeating,
+        )))
         .add_systems(Startup, setup)
-        .add_systems(Update, move_player)
+        .add_systems(Update, (move_player, spawn_star, despawn_stars))
         .run();
 }
 
-#[derive(Component)]
-struct Player;
-
+/// Initialise the environment and the objects in it.
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -85,5 +103,48 @@ fn move_player(
 
         position.translation.x = position.translation.x.clamp(-9., 9.);
         position.translation.z = position.translation.z.clamp(-9., 9.);
+    }
+}
+
+/// Spawn a new star in a random place if the timer has finished.
+fn spawn_star(
+    time: Res<Time>,
+    mut spawn_timer: ResMut<StarSpawnTimer>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if !spawn_timer.0.tick(time.delta()).finished() {
+        return;
+    }
+
+    // TODO: Randomise this and dodge already existing stars and player
+    let position = (0., 0.);
+
+    // TODO: Use star model
+    let transform = Transform::from_xyz(position.0, 1., position.1);
+    commands.spawn((
+        Star {
+            alive_timer: Timer::from_seconds(3.5, TimerMode::Once),
+        },
+        PbrBundle {
+            mesh: meshes.add(Sphere::new(0.4)),
+            material: materials.add(Color::rgb(0.9, 0.75, 0.2)),
+            transform,
+            ..default()
+        },
+        PointLight {
+            color: Color::rgb(0.9, 0.75, 0.2),
+            ..default()
+        },
+    ));
+}
+
+/// Despawn all the old stars.
+fn despawn_stars(time: Res<Time>, mut stars: Query<(&mut Star, Entity)>, mut commands: Commands) {
+    for (mut star, entity) in &mut stars {
+        if star.alive_timer.tick(time.delta()).finished() {
+            commands.entity(entity).despawn_recursive();
+        }
     }
 }
