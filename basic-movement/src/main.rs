@@ -1,6 +1,8 @@
 //! This is a very simple project to test basic movement in a 3D environment with Bevy.
 
 use bevy::prelude::*;
+use rand::{thread_rng, Rng};
+use std::f32::consts::PI;
 
 /// A simple tag to identify the player entity.
 #[derive(Component)]
@@ -16,6 +18,10 @@ struct Star {
 #[derive(Resource)]
 struct StarSpawnTimer(Timer);
 
+/// A handle to the asset for the star model.
+#[derive(Resource)]
+struct StarAsset(Handle<Scene>);
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.build().set(WindowPlugin {
@@ -30,7 +36,7 @@ fn main() {
             TimerMode::Repeating,
         )))
         .add_systems(Startup, setup)
-        .add_systems(Update, (move_player, spawn_star, despawn_stars))
+        .add_systems(Update, (move_player, spawn_star, despawn_stars, spin_stars))
         .run();
 }
 
@@ -39,6 +45,7 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     let camera_pos = Transform::from_xyz(0., 16., 22.).looking_at(Vec3::ZERO, Vec3::Y);
 
@@ -76,8 +83,11 @@ fn setup(
             ..default()
         },
     ));
+
+    commands.insert_resource(StarAsset(asset_server.load("star.glb#Scene0")));
 }
 
+/// Move the player in response to keyboard input.
 fn move_player(
     mut player_pos: Query<&mut Transform, With<Player>>,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -111,15 +121,27 @@ fn spawn_star(
     time: Res<Time>,
     mut spawn_timer: ResMut<StarSpawnTimer>,
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    star_asset: Res<StarAsset>,
+    other_objects: Query<&Transform, Or<(With<Player>, With<Star>)>>,
 ) {
     if !spawn_timer.0.tick(time.delta()).finished() {
         return;
     }
 
-    // TODO: Randomise this and dodge already existing stars and player
-    let position = (0., 0.);
+    let mut rng = thread_rng();
+
+    let mut position = (rng.gen_range(-9.0..=9.0), rng.gen_range(-9.0..=9.0));
+    let mut attempts = 0u8;
+    while other_objects.iter().any(|transform| {
+        (transform.translation - Vec3::new(position.0, 1., position.1)).length_squared() <= 1.
+    }) {
+        position = (rng.gen_range(-9.0..=9.0), rng.gen_range(-9.0..=9.0));
+        attempts += 1;
+
+        if attempts >= 100 {
+            return;
+        }
+    }
 
     // TODO: Use star model
     let transform = Transform::from_xyz(position.0, 1., position.1);
@@ -127,9 +149,8 @@ fn spawn_star(
         Star {
             alive_timer: Timer::from_seconds(3.5, TimerMode::Once),
         },
-        PbrBundle {
-            mesh: meshes.add(Sphere::new(0.4)),
-            material: materials.add(Color::rgb(0.9, 0.75, 0.2)),
+        SceneBundle {
+            scene: star_asset.0.clone(),
             transform,
             ..default()
         },
@@ -146,5 +167,12 @@ fn despawn_stars(time: Res<Time>, mut stars: Query<(&mut Star, Entity)>, mut com
         if star.alive_timer.tick(time.delta()).finished() {
             commands.entity(entity).despawn_recursive();
         }
+    }
+}
+
+/// Make the stars spin.
+fn spin_stars(mut stars: Query<(&mut Transform, &Star)>) {
+    for (mut transform, star) in &mut stars {
+        transform.rotate_y(star.alive_timer.fraction() * PI * 0.2);
     }
 }
