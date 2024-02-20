@@ -14,6 +14,10 @@ struct Star {
     alive_timer: Timer,
 }
 
+/// Keep track of the score.
+#[derive(Component)]
+struct Score(usize);
+
 /// The timer that we use to know when to spawn a new star.
 #[derive(Resource)]
 struct StarSpawnTimer(Timer);
@@ -36,7 +40,16 @@ fn main() {
             TimerMode::Repeating,
         )))
         .add_systems(Startup, setup)
-        .add_systems(Update, (move_player, spawn_star, despawn_stars, spin_stars))
+        .add_systems(
+            Update,
+            (
+                move_player,
+                spawn_star,
+                despawn_stars,
+                spin_stars,
+                collect_stars,
+            ),
+        )
         .run();
 }
 
@@ -82,6 +95,25 @@ fn setup(
             transform: Transform::from_xyz(0., 0.95, 0.),
             ..default()
         },
+    ));
+
+    // Score
+    commands.spawn((
+        Score(0),
+        TextBundle::from_section(
+            "Score: 0",
+            TextStyle {
+                font_size: 40.,
+                color: Color::rgb(0.8, 0.8, 0.8),
+                ..default()
+            },
+        )
+        .with_style(Style {
+            position_type: PositionType::Absolute,
+            top: Val::Px(5.),
+            left: Val::Px(5.),
+            ..default()
+        }),
     ));
 
     commands.insert_resource(StarAsset(asset_server.load("star.glb#Scene0")));
@@ -174,5 +206,25 @@ fn despawn_stars(time: Res<Time>, mut stars: Query<(&mut Star, Entity)>, mut com
 fn spin_stars(mut stars: Query<(&mut Transform, &Star)>) {
     for (mut transform, star) in &mut stars {
         transform.rotate_y(star.alive_timer.fraction() * PI * 0.2);
+    }
+}
+
+/// Check if the player has collected a star and increment the score if so.
+fn collect_stars(
+    players: Query<&Transform, With<Player>>,
+    stars: Query<(&Transform, Entity), With<Star>>,
+    mut commands: Commands,
+    mut score: Query<(&mut Score, &mut Text)>,
+) {
+    for player in &players {
+        for (star_transform, star_entity) in &stars {
+            if (star_transform.translation - player.translation).length_squared() <= 0.5 {
+                commands.entity(star_entity).despawn_recursive();
+                for (mut score, mut text) in &mut score {
+                    score.0 += 1;
+                    text.sections[0].value = format!("Score: {}", score.0);
+                }
+            }
+        }
     }
 }
